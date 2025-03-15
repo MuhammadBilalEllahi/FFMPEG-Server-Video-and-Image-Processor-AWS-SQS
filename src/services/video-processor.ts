@@ -186,16 +186,20 @@ export class VideoProcessor {
         };
 
         try {
+          // Extract key from S3 URL correctly
+          const url = new URL(rawUrl);
+          const key = url.pathname.substring(1).replace(`${this.rawBucket}/`, '');
+          this.logger.info('Extracted S3 key:', { originalUrl: rawUrl, extractedKey: key });
+          
           // Download from raw bucket
-          const key = new URL(rawUrl).pathname.slice(1); // Remove leading slash
           await this.downloadFromS3(key, tempFilePath);
 
           // Process image into different sizes
           await Promise.all([
-            this.processImage(tempFilePath, processedPaths.original, 2560),
-            this.processImage(tempFilePath, processedPaths.thumbnail, 150),
-            this.processImage(tempFilePath, processedPaths.medium, 800),
-            this.processImage(tempFilePath, processedPaths.large, 1920)
+            this.processImage(tempFilePath, processedPaths.original, 100),
+            this.processImage(tempFilePath, processedPaths.thumbnail, 90),
+            this.processImage(tempFilePath, processedPaths.medium, 70),
+            this.processImage(tempFilePath, processedPaths.large, 80)
           ]);
 
           // Upload processed files
@@ -213,10 +217,13 @@ export class VideoProcessor {
             large: urls[3]
           };
         } finally {
-          // Cleanup temp files
+          // Cleanup all temp files
+          this.logger.info('Cleaning up temporary files:', { tempFilePath, ...processedPaths });
           await Promise.all([
-            unlink(tempFilePath).catch(() => {}),
-            ...Object.values(processedPaths).map(p => unlink(p).catch(() => {}))
+            unlink(tempFilePath).catch(err => this.logger.warn('Error deleting temp file:', err)),
+            ...Object.values(processedPaths).map(p => 
+              unlink(p).catch(err => this.logger.warn(`Error deleting processed file ${p}:`, err))
+            )
           ]);
         }
       })
@@ -229,10 +236,18 @@ export class VideoProcessor {
   }
 
   private async downloadFromS3(key: string, filePath: string): Promise<void> {
-    this.logger.info(`Downloading from S3: ${this.rawBucket}/${key} to ${filePath}`);
+    this.logger.info('Downloading from S3:', {
+      bucket: this.rawBucket,
+      key: key,
+      destinationPath: filePath
+    });
+
     try {
       const response = await this.s3.send(
-        new GetObjectCommand({ Bucket: this.rawBucket, Key: key })
+        new GetObjectCommand({
+          Bucket: this.rawBucket,
+          Key: key
+        })
       );
 
       if (!response.Body) {
@@ -246,11 +261,15 @@ export class VideoProcessor {
         await new Promise((resolve, reject) => {
           (response.Body as Readable).pipe(writeStream)
             .on('error', (err) => {
-              this.logger.error('Error writing stream:', err);
+              this.logger.error('Error writing stream:', {
+                error: err.message,
+                stack: err.stack,
+                key: key
+              });
               reject(err);
             })
             .on('finish', () => {
-              this.logger.info('Successfully wrote file to disk');
+              this.logger.info('Successfully wrote file to disk:', { filePath });
               resolve(undefined);
             });
         });
@@ -265,10 +284,14 @@ export class VideoProcessor {
         await new Promise((resolve, reject) => {
           writeStream.write(buffer, (err) => {
             if (err) {
-              this.logger.error('Error writing buffer to disk:', err);
+              this.logger.error('Error writing buffer to disk:', {
+                error: err.message,
+                stack: err.stack,
+                key: key
+              });
               reject(err);
             } else {
-              this.logger.info('Successfully wrote buffer to disk');
+              this.logger.info('Successfully wrote buffer to disk:', { filePath });
               resolve(undefined);
             }
           });
@@ -346,11 +369,11 @@ export class VideoProcessor {
     });
   }
 
-  private async processImage(inputPath: string, outputPath: string, width: number): Promise<void> {
-    this.logger.info('Processing image:', { inputPath, outputPath, width });
+  private async processImage(inputPath: string, outputPath: string, quality: number): Promise<void> {
+    this.logger.info('Processing image:', { inputPath, outputPath, quality });
     await sharp(inputPath)
-      .resize(width, null, { withoutEnlargement: true })
-      .jpeg({ quality: 80 })
+      .resize(null, null, { withoutEnlargement: true })
+      .jpeg({ quality })
       .toFile(outputPath);
   }
 
@@ -368,7 +391,7 @@ export class VideoProcessor {
       })
     );
 
-    return `https://${this.processedBucket}.s3.amazonaws.com/${key}`;
+    return `https://s3.${process.env.AWS_REGION}.amazonaws.com/${this.processedBucket}/${key}`;
   }
 
   private async uploadHLSToS3(dirPath: string, s3KeyPrefix: string): Promise<string> {
@@ -392,7 +415,7 @@ export class VideoProcessor {
       );
     }));
 
-    return `https://${this.processedBucket}.s3.amazonaws.com/${s3KeyPrefix}`;
+    return `https://s3.${process.env.AWS_REGION}.amazonaws.com/${this.processedBucket}/${s3KeyPrefix}`;
   }
 
   private async removeDirectory(dir: string): Promise<void> {
