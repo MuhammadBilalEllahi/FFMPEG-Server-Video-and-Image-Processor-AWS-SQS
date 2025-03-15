@@ -20,7 +20,6 @@
     "winston": "^3.17.0"
   },
   "devDependencies": {
-    "@types/aws-sdk": "^2.7.4",
     "@types/fluent-ffmpeg": "^2.1.24",
     "@types/mongoose": "^5.11.97",
     "@types/node": "^18.15.0",

@@ -1599,3 +1599,9 @@
 {"level":"info","message":"Starting video processing service...","timestamp":"2025-03-15T05:50:20.437Z"}
 {"level":"info","message":"Connected to MongoDB","timestamp":"2025-03-15T05:50:21.386Z"}
 {"$metadata":{"attempts":2,"totalRetryDelay":94},"code":"ENOTFOUND","errno":-3008,"hostname":"sqs.ap-south-1.amazonaws.com","level":"error","message":"Error in processing loop: getaddrinfo ENOTFOUND sqs.ap-south-1.amazonaws.com","stack":"Error: getaddrinfo ENOTFOUND sqs.ap-south-1.amazonaws.com\n    at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:120:26)","syscall":"getaddrinfo","timestamp":"2025-03-15T12:24:38.204Z"}
+{"level":"info","message":"Starting video processing service...","timestamp":"2025-03-15T12:54:25.679Z"}
+{"level":"info","message":"Connected to MongoDB","timestamp":"2025-03-15T12:54:26.594Z"}
+{"level":"info","message":"Starting video processing service...","timestamp":"2025-03-15T12:58:14.018Z"}
+{"level":"info","message":"Connected to MongoDB","timestamp":"2025-03-15T12:58:14.947Z"}
+{"level":"info","message":"Starting video processing service...","timestamp":"2025-03-15T13:01:35.371Z"}
+{"level":"info","message":"Connected to MongoDB","timestamp":"2025-03-15T13:01:36.309Z"}
