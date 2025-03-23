@@ -54,7 +54,7 @@ export class VideoProcessor {
       if (type === 'video') {
         await this.processVideoFile(newsAlertId, key);
       } else {
-        await this.processImageFiles(newsAlertId);
+        await this.processImageFiles(newsAlertId,key);
       }
 
       // Update status to completed
@@ -91,15 +91,16 @@ export class VideoProcessor {
       this.logger.info('Extracted key from URL:', { originalKey: key, newKey: key });
     }
     
-    const tempFilePath = path.join(this.TEMP_DIR, `${uuidv4()}.mp4`);
-    const hlsBasePath = path.join(this.TEMP_DIR, `${uuidv4()}_hls`);
+    
+    const hlsBasePath = path.join(this.TEMP_DIR, `${newsAlertId}`);
+    const tempFilePath = path.join(hlsBasePath, `${newsAlertId}.${key.split(newsAlertId)[1].split('/')[1]}`);
     mkdirSync(hlsBasePath, { recursive: true });
 
     const processedPaths = {
       '480p': path.join(hlsBasePath, '480p'),
       '720p': path.join(hlsBasePath, '720p'),
       '1080p': path.join(hlsBasePath, '1080p'),
-      'thumbnail': path.join(this.TEMP_DIR, `${uuidv4()}_thumb.jpg`)
+      'thumbnail': path.join(hlsBasePath, `${newsAlertId}_thumb.jpg`)
     };
 
     // Create directories for each quality
@@ -169,20 +170,24 @@ export class VideoProcessor {
     }
   }
 
-  private async processImageFiles(newsAlertId: string): Promise<void> {
+  private async processImageFiles(newsAlertId: string, key: string): Promise<void> {
     const newsAlert = await NewsAlertModel.findById(newsAlertId);
     if (!newsAlert?.rawAwsLinkImages?.length) {
       throw new Error('No raw images found');
     }
 
+    const hlsBasePath = path.join(this.TEMP_DIR, `${newsAlertId}`);
+    const tempFilePath = path.join(hlsBasePath, `${newsAlertId}.${key.split(newsAlertId)[1].split('/')[1]}`);
+    mkdirSync(hlsBasePath, { recursive: true });
+
     const processedImages = await Promise.all(
       newsAlert.rawAwsLinkImages.map(async (rawUrl: string, index: number) => {
-        const tempFilePath = path.join(this.TEMP_DIR, `${uuidv4()}.jpg`);
+        const tempFilePath = path.join(hlsBasePath, `${newsAlertId}.${key.split(newsAlertId)[1].split('/')[1]}`);
         const processedPaths = {
-          original: path.join(this.TEMP_DIR, `${uuidv4()}_original.jpg`),
-          thumbnail: path.join(this.TEMP_DIR, `${uuidv4()}_thumb.jpg`),
-          medium: path.join(this.TEMP_DIR, `${uuidv4()}_medium.jpg`),
-          large: path.join(this.TEMP_DIR, `${uuidv4()}_large.jpg`)
+          original: path.join(hlsBasePath, `${newsAlertId}_original.jpg`),
+          thumbnail: path.join(hlsBasePath, `${newsAlertId}_thumb.jpg`),
+          medium: path.join(hlsBasePath, `${newsAlertId}_medium.jpg`),
+          large: path.join(hlsBasePath, `${newsAlertId}_large.jpg`)
         };
 
         try {
@@ -379,6 +384,7 @@ export class VideoProcessor {
 
   private async uploadToS3(filePath: string, key: string): Promise<string> {
     const fileStream = createReadStream(filePath);
+    const fileStats = await fs.promises.stat(filePath);
     const contentType = key.endsWith('.jpg') ? 'image/jpeg' : 'video/mp4';
     
     await this.s3.send(
@@ -387,6 +393,7 @@ export class VideoProcessor {
         Key: key,
         Body: fileStream,
         ContentType: contentType,
+        ContentLength: fileStats.size,
         ACL: 'public-read'
       })
     );
@@ -404,12 +411,15 @@ export class VideoProcessor {
       const key = `${s3KeyPrefix}/${file}`;
       
       const fileStream = createReadStream(filePath);
+      const fileStats = await fs.promises.stat(filePath);
+      
       await this.s3.send(
         new PutObjectCommand({
           Bucket: this.processedBucket,
           Key: key,
           Body: fileStream,
           ContentType: contentType,
+          ContentLength: fileStats.size,
           ACL: 'public-read'
         })
       );
@@ -419,11 +429,29 @@ export class VideoProcessor {
   }
 
   private async removeDirectory(dir: string): Promise<void> {
-    const files = await fs.promises.readdir(dir);
-    await Promise.all(
-      files.map(file => unlink(path.join(dir, file)))
-    );
-    await fs.promises.rmdir(dir);
+    try {
+      const files = await fs.promises.readdir(dir);
+      console.log('files---------', files);
+      
+      // Delete all files in the directory first
+      await Promise.all(
+        files.map(async (file) => {
+          const filePath = path.join(dir, file);
+          try {
+            await unlink(filePath);
+          } catch (err) {
+            this.logger.warn(`Error deleting file ${filePath}:`, err);
+          }
+        })
+      );
+      
+      // Then remove the directory itself
+      console.log('dir---------', dir);
+      await fs.promises.rmdir(dir);
+    } catch (err) {
+      this.logger.warn(`Error removing directory ${dir}:`, err);
+      // Don't throw the error to allow cleanup to continue
+    }
   }
 
   private async updateProcessingStatus(
